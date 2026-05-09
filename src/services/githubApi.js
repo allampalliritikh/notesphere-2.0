@@ -12,3 +12,20 @@ export const fetchContents = async (path = "") => {
     return [];
   }
 };
+export const fetchAllContents = async (path = "") => {
+  let allItems = [];
+
+  const items = await fetchContents(path);
+
+  for (const item of items) {
+    allItems.push(item);
+
+    if (item.type === "dir") {
+      const nestedItems = await fetchAllContents(item.path);
+
+      allItems = [...allItems, ...nestedItems];
+    }
+  }
+
+  return allItems;
+};

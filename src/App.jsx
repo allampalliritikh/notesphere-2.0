@@ -6,7 +6,10 @@ import FolderCard from "./components/FolderCard";
 import FileCard from "./components/FileCard";
 import Breadcrumbs from "./components/Breadcrumbs";
 
-import { fetchContents } from "./services/githubApi";
+import {
+  fetchContents,
+  fetchAllContents,
+} from "./services/githubApi";
 
 const container = {
   hidden: { opacity: 0 },
@@ -18,53 +21,95 @@ const container = {
 
 const item = {
   hidden: { opacity: 0, y: 12 },
-  show: { opacity: 1, y: 0, transition: { duration: 0.25, ease: "easeOut" } },
+  show: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.25,
+      ease: "easeOut",
+    },
+  },
 };
 
 function App() {
   const [contents, setContents] = useState([]);
+  const [allContents, setAllContents] = useState([]);
   const [currentPath, setCurrentPath] = useState("");
   const [loading, setLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
 
-  // Fetch and display contents WITHOUT pushing to history (used by popstate)
+  // Fetch current folder
   const fetchAndShow = async (path = "") => {
     setLoading(true);
+
     const data = await fetchContents(path);
+
     setContents(data);
     setCurrentPath(path);
+
     setLoading(false);
   };
 
-  // Navigate: update contents AND push a history entry so browser back/forward works
+  // Navigation with browser history
   const loadContents = async (path = "") => {
-    const url = path ? `?path=${encodeURIComponent(path)}` : "/";
+    const url = path
+      ? `?path=${encodeURIComponent(path)}`
+      : "/";
+
     window.history.pushState({ path }, "", url);
+
     await fetchAndShow(path);
   };
 
   useEffect(() => {
-    // On first load, read path from URL (supports direct links & refreshes)
+    // Load current URL path
     const params = new URLSearchParams(window.location.search);
+
     const initialPath = params.get("path") || "";
+
     fetchAndShow(initialPath);
 
-    // Listen for browser back/forward button
+    // Browser back/forward support
     const handlePopState = (e) => {
       const path = e.state?.path ?? "";
+
       fetchAndShow(path);
     };
 
     window.addEventListener("popstate", handlePopState);
-    return () => window.removeEventListener("popstate", handlePopState);
+
+    // GLOBAL SEARCH DATA
+    const loadAllData = async () => {
+      const allData = await fetchAllContents();
+
+      setAllContents(allData);
+    };
+
+    loadAllData();
+
+    return () =>
+      window.removeEventListener(
+        "popstate",
+        handlePopState
+      );
   }, []);
 
-  const filteredContents = contents.filter((i) =>
-    i.name.toLowerCase().includes(searchTerm.toLowerCase())
+  // GLOBAL SEARCH
+  const filteredContents = searchTerm
+    ? allContents.filter((item) =>
+        item.name
+          .toLowerCase()
+          .includes(searchTerm.toLowerCase())
+      )
+    : contents;
+
+  const folders = filteredContents.filter(
+    (item) => item.type === "dir"
   );
 
-  const folders = filteredContents.filter((i) => i.type === "dir");
-  const files = filteredContents.filter((i) => i.type === "file");
+  const files = filteredContents.filter(
+    (item) => item.type === "file"
+  );
 
   return (
     <div
@@ -75,7 +120,10 @@ function App() {
         flexDirection: "row",
       }}
     >
-      <Sidebar searchTerm={searchTerm} setSearchTerm={setSearchTerm} />
+      <Sidebar
+        searchTerm={searchTerm}
+        setSearchTerm={setSearchTerm}
+      />
 
       <main
         style={{
@@ -102,9 +150,15 @@ function App() {
               letterSpacing: "0.03em",
             }}
           >
-            <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor">
+            <svg
+              width="10"
+              height="10"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
               <circle cx="12" cy="12" r="6" />
             </svg>
+
             Live from GitHub
           </div>
 
@@ -134,7 +188,12 @@ function App() {
         </div>
 
         {/* Breadcrumbs */}
-        <Breadcrumbs currentPath={currentPath} navigateTo={loadContents} />
+        {!searchTerm && (
+          <Breadcrumbs
+            currentPath={currentPath}
+            navigateTo={loadContents}
+          />
+        )}
 
         {/* Content */}
         <AnimatePresence mode="wait">
@@ -154,7 +213,6 @@ function App() {
                 color: "var(--text-muted)",
               }}
             >
-              {/* Spinner */}
               <div
                 style={{
                   width: "32px",
@@ -165,48 +223,94 @@ function App() {
                   animation: "spin 0.7s linear infinite",
                 }}
               />
-              <span style={{ fontSize: "13.5px" }}>Loading contents…</span>
-              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+
+              <span style={{ fontSize: "13.5px" }}>
+                Loading contents…
+              </span>
+
+              <style>
+                {`
+                  @keyframes spin {
+                    to {
+                      transform: rotate(360deg);
+                    }
+                  }
+                `}
+              </style>
             </motion.div>
           ) : (
-            <motion.div key={currentPath} initial="hidden" animate="show" variants={container}>
-              {/* Folders section */}
+            <motion.div
+              key={currentPath}
+              initial="hidden"
+              animate="show"
+              variants={container}
+            >
+              {/* Folders */}
               {folders.length > 0 && (
                 <div style={{ marginBottom: "32px" }}>
-                  <SectionLabel icon="📁" label="Folders" count={folders.length} />
+                  <SectionLabel
+                    icon="📁"
+                    label={
+                      searchTerm
+                        ? "Matching Folders"
+                        : "Folders"
+                    }
+                    count={folders.length}
+                  />
+
                   <motion.div
                     variants={container}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                      gridTemplateColumns:
+                        "repeat(auto-fill, minmax(180px, 1fr))",
                       gap: "14px",
                       marginTop: "12px",
                     }}
                   >
                     {folders.map((folder) => (
-                      <motion.div key={folder.path} variants={item}>
-                        <FolderCard folder={folder} onClick={loadContents} />
+                      <motion.div
+                        key={folder.path}
+                        variants={item}
+                      >
+                        <FolderCard
+                          folder={folder}
+                          onClick={loadContents}
+                        />
                       </motion.div>
                     ))}
                   </motion.div>
                 </div>
               )}
 
-              {/* Files section */}
+              {/* Files */}
               {files.length > 0 && (
                 <div>
-                  <SectionLabel icon="📄" label="Files" count={files.length} />
+                  <SectionLabel
+                    icon="📄"
+                    label={
+                      searchTerm
+                        ? "Matching Files"
+                        : "Files"
+                    }
+                    count={files.length}
+                  />
+
                   <motion.div
                     variants={container}
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                      gridTemplateColumns:
+                        "repeat(auto-fill, minmax(180px, 1fr))",
                       gap: "14px",
                       marginTop: "12px",
                     }}
                   >
                     {files.map((file) => (
-                      <motion.div key={file.path} variants={item}>
+                      <motion.div
+                        key={file.path}
+                        variants={item}
+                      >
                         <FileCard file={file} />
                       </motion.div>
                     ))}
@@ -214,25 +318,46 @@ function App() {
                 </div>
               )}
 
-              {/* Empty state */}
-              {folders.length === 0 && files.length === 0 && (
-                <motion.div
-                  variants={item}
-                  style={{
-                    textAlign: "center",
-                    paddingTop: "72px",
-                    color: "var(--text-muted)",
-                  }}
-                >
-                  <div style={{ fontSize: "36px", marginBottom: "12px" }}>🔍</div>
-                  <div style={{ fontWeight: 500, fontSize: "15px", color: "var(--text-secondary)" }}>
-                    Nothing found
-                  </div>
-                  <div style={{ fontSize: "13px", marginTop: "4px" }}>
-                    Try adjusting your search term.
-                  </div>
-                </motion.div>
-              )}
+              {/* Empty State */}
+              {folders.length === 0 &&
+                files.length === 0 && (
+                  <motion.div
+                    variants={item}
+                    style={{
+                      textAlign: "center",
+                      paddingTop: "72px",
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: "36px",
+                        marginBottom: "12px",
+                      }}
+                    >
+                      🔍
+                    </div>
+
+                    <div
+                      style={{
+                        fontWeight: 500,
+                        fontSize: "15px",
+                        color: "var(--text-secondary)",
+                      }}
+                    >
+                      Nothing found
+                    </div>
+
+                    <div
+                      style={{
+                        fontSize: "13px",
+                        marginTop: "4px",
+                      }}
+                    >
+                      Try adjusting your search term.
+                    </div>
+                  </motion.div>
+                )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -241,7 +366,11 @@ function App() {
   );
 }
 
-const SectionLabel = ({ icon, label, count }) => (
+const SectionLabel = ({
+  icon,
+  label,
+  count,
+}) => (
   <div
     style={{
       display: "flex",
@@ -249,7 +378,10 @@ const SectionLabel = ({ icon, label, count }) => (
       gap: "8px",
     }}
   >
-    <span style={{ fontSize: "13px" }}>{icon}</span>
+    <span style={{ fontSize: "13px" }}>
+      {icon}
+    </span>
+
     <span
       style={{
         fontFamily: "'Sora', sans-serif",
@@ -260,6 +392,7 @@ const SectionLabel = ({ icon, label, count }) => (
     >
       {label}
     </span>
+
     <span
       style={{
         fontSize: "11px",
